@@ -1,6 +1,11 @@
 const express = require('express');
 const Database = require('better-sqlite3');
-const { makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
+const qrcode = require('qrcode-terminal');
+const qrcodeImage = require('qrcode');
+const pino = require('pino');
+const { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+
+const logger = pino({ level: 'warn' });
 
 const db = new Database('/data/node_storage.db');
 const app = express();
@@ -10,11 +15,30 @@ app.use(express.json());
 let sock;
 async function initWhatsApp() {
   const { state, saveCreds } = await useMultiFileAuthState('/data/baileys_auth');
+  const { version } = await fetchLatestBaileysVersion();
   sock = makeWASocket({
     auth: state,
-    printQRInTerminal: true,
+    version,
+    logger,
+    syncFullHistory: false,
   });
   sock.ev.on('creds.update', saveCreds);
+  sock.ev.on('connection.update', ({ connection, qr, lastDisconnect }) => {
+    if (qr) {
+      qrcode.generate(qr, { small: true });
+      qrcodeImage.toFile(__dirname + '/qr.png', qr, { width: 400 });
+    }
+    if (connection === 'open') console.log('WhatsApp connection established.');
+    if (connection === 'close') {
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      if (statusCode !== DisconnectReason.loggedOut) {
+        console.log('Connection closed, reconnecting...');
+        initWhatsApp();
+      } else {
+        console.log('Logged out. Delete /data/baileys_auth and re-run to pair again.');
+      }
+    }
+  });
 
   // Listen for inbound messages to auto-verify contacts
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
