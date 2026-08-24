@@ -23,12 +23,14 @@ module.exports = {
     motionOfflineAlert: '120363410855926684@g.us', // LS Stuff
   },
 
-  // Customer name(s) to exclude from real alerts (per spec's "demo/test" note)
-  excludedCustomers: ['Demo Account'],
-  excludedDeviceIds: [],
+  // Customer name(s)/device ID(s) excluded from ALL alerts (Daily Alert,
+  // Communication Lost, Berkat Satu Hourly, Motion Offline Alert). Motion
+  // Offline Alert has its own additional exclusion — see
+  // MOTION_OFFLINE_EXCLUDED_CUSTOMERS in lib/scheduler.js — for "Demo
+  // Account", which should still appear in the other three alerts.
+  excludedCustomers: ['Cre8 IOT'],
+  excludedDeviceIds: ['291078952187'],
 
-  // Berkat Satu Hourly now runs for every tenant (extended from the spec's
-  // original single-customer scope) — this field is unused by that job now,
-  // kept only as a record of the customer it was originally named after.
+  // Berkat Satu Hourly is scoped to exactly this one customer, per spec.
   berkatSatuCustomerName: 'BERKAT SATU TRANSPORT',
 };

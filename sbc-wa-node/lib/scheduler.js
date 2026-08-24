@@ -7,7 +7,6 @@ const cron = require('node-cron');
 const config = require('../config');
 const mettax = require('./mettax-client');
 const geocoding = require('./geocoding');
-const tenants = require('./tenants');
 const tripTrack = require('./trip-track');
 const {
   formatDailyAlert,
@@ -82,11 +81,22 @@ function trackedLabelFor(alarmType) {
   return label;
 }
 
+const excludedCustomersLower = new Set(config.excludedCustomers.map((name) => name.toLowerCase()));
+
 function isExcluded(device) {
   return (
-    config.excludedCustomers.includes(device.customerName) ||
+    excludedCustomersLower.has((device.customerName || '').toLowerCase()) ||
     config.excludedDeviceIds.includes(device.id)
   );
+}
+
+// Motion Offline Alert only: "Demo Account" falsely triggers on stale demo
+// data there, so it's excluded from this alert specifically — unlike Daily
+// Alert, Communication Lost, and Berkat Satu Hourly, which still list it.
+const MOTION_OFFLINE_EXCLUDED_CUSTOMERS = new Set(['demo account']);
+
+function isMotionOfflineExcluded(device) {
+  return isExcluded(device) || MOTION_OFFLINE_EXCLUDED_CUSTOMERS.has((device.customerName || '').toLowerCase());
 }
 
 // MettaX timestamps ("YYYY-MM-DD HH:mm:ss") are UTC — confirmed by comparing
@@ -157,13 +167,15 @@ async function fetchDailyAlertData(periodStartUtc, periodEndUtc) {
     entry.counts.set(label, (entry.counts.get(label) || 0) + 1);
   }
 
-  return [...customerMap.entries()].map(([customerName, deviceMap]) => ({
-    name: customerName,
-    devices: [...deviceMap.values()].map((d) => ({
-      name: d.name,
-      alerts: [...d.counts.entries()].map(([type, count]) => ({ type, count })),
-    })),
-  }));
+  return [...customerMap.entries()]
+    .map(([customerName, deviceMap]) => ({
+      name: customerName,
+      devices: [...deviceMap.values()].map((d) => ({
+        name: d.name,
+        alerts: [...d.counts.entries()].map(([type, count]) => ({ type, count })),
+      })),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // Returns a flat list of offline devices (only those >= thresholdMinutes),
@@ -194,7 +206,7 @@ async function fetchOfflineDevices(thresholdMinutes, customerFilter = null) {
 // incidents: [{ deviceName, address, acc, speed, lastUpdate }] — only NEW
 // incidents (not already active) are returned, per the alert-once rule.
 async function fetchMotionOfflineIncidents() {
-  const devices = (await mettax.getDeviceList()).filter((d) => !isExcluded(d));
+  const devices = (await mettax.getDeviceList()).filter((d) => !isMotionOfflineExcluded(d));
   if (devices.length === 0) return [];
 
   const shadowData = await mettax.getDeviceShadow(devices.map((d) => d.id));
@@ -249,8 +261,8 @@ function initScheduler(getSock, db) {
     ).run(alertType, status, messageText, error);
   };
 
-  // 1. Daily Alert — 9am, 12pm, 3pm, 6pm, 9pm MYT
-  cron.schedule('0 9,12,15,18,21 * * *', async () => {
+  // 1. Daily Alert — 9:15am, 12:15pm, 3:15pm, 6:15pm, 9:15pm MYT
+  cron.schedule('15 9,12,15,18,21 * * *', async () => {
     try {
       const now = new Date();
       const periodStartDate = new Date(now.getTime() - 3 * 60 * 60 * 1000);
@@ -302,40 +314,20 @@ function initScheduler(getSock, db) {
   }, { timezone: TZ });
 
   // 3. Berkat Satu Hourly — every 3 hours: 6,9,12,15,18,21 MYT.
-  // Originally scoped to one customer (BERKAT SATU TRANSPORT) per the spec;
-  // extended on request to run the same check/format for every tenant, one
-  // message per tenant that actually has something offline 60min+.
+  // Scoped to exactly one customer (BERKAT SATU TRANSPORT) per the spec.
   cron.schedule('0 6,9,12,15,18,21 * * *', async () => {
     try {
-      // Auto-register any customer MettaX currently reports (excluding
-      // config.excludedCustomers) as a known tenant. New tenants are
-      // enabled by default; a tenant hand-disabled in /data/tenants.json
-      // stays disabled even if MettaX keeps reporting it.
-      const liveCustomerNames = (await mettax.getDeviceList())
-        .filter((d) => !isExcluded(d))
-        .map((d) => d.customerName);
-      const enabledTenants = tenants.syncAndGetEnabledNames([...new Set(liveCustomerNames)]);
-
-      const offline = (await fetchOfflineDevices(60)).filter((d) => enabledTenants.has(d.customerName));
-      const now = new Date();
-      const { date, time } = mytDateParts(now);
-
-      const byCustomer = new Map();
-      for (const d of offline) {
-        if (!byCustomer.has(d.customerName)) byCustomer.set(d.customerName, []);
-        byCustomer.get(d.customerName).push(d);
-      }
-
-      if (byCustomer.size === 0) {
-        logAlert('berkat_satu_hourly', 'SKIPPED', null, 'nothing offline 60min+ for any tenant');
+      const offline = await fetchOfflineDevices(60, config.berkatSatuCustomerName);
+      if (offline.length === 0) {
+        logAlert('berkat_satu_hourly', 'SKIPPED', null, 'nothing offline 60min+');
         return; // abort silently per spec.
       }
 
-      for (const [customerName, devices] of byCustomer) {
-        const text = formatBerkatSatuHourly({ customerName, date, time, devices });
-        await sendWithTyping(getSock, config.whatsappGroups.berkatSatuHourly, text);
-        logAlert('berkat_satu_hourly', 'SENT', text);
-      }
+      const now = new Date();
+      const { date, time } = mytDateParts(now);
+      const text = formatBerkatSatuHourly({ customerName: config.berkatSatuCustomerName, date, time, devices: offline });
+      await sendWithTyping(getSock, config.whatsappGroups.berkatSatuHourly, text);
+      logAlert('berkat_satu_hourly', 'SENT', text);
     } catch (err) {
       console.error('Berkat Satu Hourly failed:', err);
       logAlert('berkat_satu_hourly', 'FAILED', null, err.message);

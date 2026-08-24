@@ -7,6 +7,7 @@
 
 const scheduler = require('./lib/scheduler');
 const formatters = require('./lib/formatters');
+const config = require('./config');
 
 function mytParts(date) {
   return {
@@ -48,21 +49,14 @@ async function main() {
   console.log('---text---');
   console.log(formatters.formatCommunicationLost({ date, time, customers: commCustomers }) || '(null — nothing offline, sends nothing)');
 
-  console.log('\n========== 3. BERKAT SATU HOURLY (all tenants) ==========');
-  const berkatOffline = await scheduler.fetchOfflineDevices(60);
-  console.log('raw offline (60min+, all tenants):', JSON.stringify(berkatOffline, null, 2));
-  const berkatByCustomer = new Map();
-  for (const d of berkatOffline) {
-    if (!berkatByCustomer.has(d.customerName)) berkatByCustomer.set(d.customerName, []);
-    berkatByCustomer.get(d.customerName).push(d);
-  }
-  if (berkatByCustomer.size === 0) {
-    console.log('(nothing offline for any tenant — aborts silently)');
+  console.log(`\n========== 3. BERKAT SATU HOURLY (${config.berkatSatuCustomerName}) ==========`);
+  const berkatOffline = await scheduler.fetchOfflineDevices(60, config.berkatSatuCustomerName);
+  console.log('raw offline (60min+):', JSON.stringify(berkatOffline, null, 2));
+  if (berkatOffline.length === 0) {
+    console.log('(nothing offline — aborts silently)');
   } else {
-    for (const [customerName, devices] of berkatByCustomer) {
-      console.log(`---text (${customerName})---`);
-      console.log(formatters.formatBerkatSatuHourly({ customerName, date, time, devices }));
-    }
+    console.log('---text---');
+    console.log(formatters.formatBerkatSatuHourly({ customerName: config.berkatSatuCustomerName, date, time, devices: berkatOffline }));
   }
 
   console.log('\n========== 4. MOTION OFFLINE ALERT ==========');

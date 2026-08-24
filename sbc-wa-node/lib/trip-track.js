@@ -11,9 +11,11 @@ const geocoding = require('./geocoding');
 const STATE_PATH = '/data/trip_track_state.json';
 const MYT_OFFSET_MS = 8 * 60 * 60 * 1000;
 
+const excludedCustomersLower = new Set(config.excludedCustomers.map((name) => name.toLowerCase()));
+
 function isExcluded(device) {
   return (
-    config.excludedCustomers.includes(device.customerName) ||
+    excludedCustomersLower.has((device.customerName || '').toLowerCase()) ||
     config.excludedDeviceIds.includes(device.id)
   );
 }

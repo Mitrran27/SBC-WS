@@ -69,7 +69,7 @@ function formatDailyAlert({ date, time, periodStart, periodEnd, customers }) {
 // customers: [{ name, devices: [{ name, offlineMinutes }] }]
 // Returns null if nothing is offline (spec: send nothing at all).
 function formatCommunicationLost({ date, time, customers }) {
-  const withOffline = customers.filter((c) => c.devices.length > 0);
+  const withOffline = customers.filter((c) => c.devices.length > 0).sort((a, b) => a.name.localeCompare(b.name));
   if (withOffline.length === 0) return null;
 
   const blocks = withOffline.map((c) => {
@@ -102,6 +102,7 @@ function formatBerkatSatuHourly({ customerName, date, time, devices }) {
     'Vehicle Activity Status',
     `${date} | ${time}`,
     `Offline / ACC OFF (${devices.length}):`,
+    '',
     lines,
     '',
     `These vehicles have remained in ACC OFF status for the duration shown as of ${time}`,
