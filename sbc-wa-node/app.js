@@ -4,6 +4,8 @@ const qrcode = require('qrcode-terminal');
 const qrcodeImage = require('qrcode');
 const pino = require('pino');
 const { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { initScheduler } = require('./lib/scheduler');
+const { parseReportRequest, generateReport } = require('./lib/report-generator');
 
 const logger = pino({ level: 'warn' });
 
@@ -13,6 +15,7 @@ app.use(express.json());
 
 // Initialize Baileys Socket
 let sock;
+let schedulerStarted = false;
 async function initWhatsApp() {
   const { state, saveCreds } = await useMultiFileAuthState('/data/baileys_auth');
   const { version } = await fetchLatestBaileysVersion();
@@ -28,7 +31,13 @@ async function initWhatsApp() {
       qrcode.generate(qr, { small: true });
       qrcodeImage.toFile(__dirname + '/qr.png', qr, { width: 400 });
     }
-    if (connection === 'open') console.log('WhatsApp connection established.');
+    if (connection === 'open') {
+      console.log('WhatsApp connection established.');
+      if (!schedulerStarted) {
+        initScheduler(() => sock, db);
+        schedulerStarted = true;
+      }
+    }
     if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       if (statusCode !== DisconnectReason.loggedOut) {
@@ -40,18 +49,37 @@ async function initWhatsApp() {
     }
   });
 
-  // Listen for inbound messages to auto-verify contacts
+  // Listen for inbound messages: auto-verify contacts, and watch for
+  // Trip/Track report requests (Trip_Track_Reference_Spec.md section 3).
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type === 'notify') {
-      for (const msg of messages) {
-        if (!msg.key.fromMe) {
-          const sender = msg.key.remoteJid.split('@')[0];
-          db.prepare(`
-            INSERT INTO recipients (phone, status, last_interaction)
-            VALUES (?, 2, CURRENT_TIMESTAMP)
-            ON CONFLICT(phone) DO UPDATE SET status = 2, last_interaction = CURRENT_TIMESTAMP
-          `).run(sender);
-        }
+    if (type !== 'notify') return;
+    for (const msg of messages) {
+      if (msg.key.fromMe) continue;
+
+      const sender = msg.key.remoteJid.split('@')[0];
+      db.prepare(`
+        INSERT INTO recipients (phone, status, last_interaction)
+        VALUES (?, 2, CURRENT_TIMESTAMP)
+        ON CONFLICT(phone) DO UPDATE SET status = 2, last_interaction = CURRENT_TIMESTAMP
+      `).run(sender);
+
+      const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
+      const request = parseReportRequest(text);
+      if (!request) continue;
+
+      try {
+        const { buffer, filename, rowCount } = await generateReport(request, db);
+        await sock.sendMessage(msg.key.remoteJid, {
+          document: buffer,
+          fileName: filename,
+          mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        }, { quoted: msg });
+        console.log(`Report generated: ${filename} (${rowCount} rows) for ${msg.key.remoteJid}`);
+      } catch (err) {
+        console.error('Report generation failed:', err);
+        await sock.sendMessage(msg.key.remoteJid, {
+          text: `Report generation failed: ${err.message}`,
+        }, { quoted: msg });
       }
     }
   });

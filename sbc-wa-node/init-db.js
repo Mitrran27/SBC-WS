@@ -38,6 +38,47 @@ db.exec(`
     phrase TEXT NOT NULL,
     category TEXT DEFAULT 'casual'
   );
+
+  CREATE TABLE IF NOT EXISTS alert_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_type TEXT NOT NULL, -- 'daily_alert' | 'communication_lost' | 'berkat_satu_hourly' | 'motion_offline'
+    status TEXT CHECK(status IN ('SENT', 'SKIPPED', 'FAILED')) NOT NULL,
+    message_text TEXT,
+    error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  -- Trip & Track (per Trip_Track_Reference_Spec.md), schemas as specified.
+  CREATE TABLE IF NOT EXISTS trip_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company TEXT,
+      vehicle TEXT,
+      date TEXT,
+      start_time TEXT,
+      end_time TEXT,
+      duration TEXT,
+      mileage TEXT,
+      avg_speed TEXT,
+      max_speed TEXT,
+      start_coord TEXT,
+      end_coord TEXT,
+      fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS raw_tracks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company TEXT,
+      vehicle TEXT,
+      date TEXT,
+      arrive_time TEXT,
+      leave_time TEXT,
+      duration TEXT,
+      coordinates TEXT,
+      address TEXT,
+      acc_status TEXT,
+      speed TEXT,
+      fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // Seed a few placeholder phrases so the ghost_messages table isn't empty.
