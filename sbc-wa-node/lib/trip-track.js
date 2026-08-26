@@ -6,7 +6,6 @@ const fs = require('fs');
 const path = require('path');
 const config = require('../config');
 const mettax = require('./mettax-client');
-const geocoding = require('./geocoding');
 
 const STATE_PATH = '/data/trip_track_state.json';
 const MYT_OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -204,14 +203,6 @@ async function collectGps(db, deviceById, ids, now) {
         const durationMin = Math.round((leaveUtc.getTime() - arriveUtc.getTime()) / 60000);
         const avgSpeed = stay.pings.reduce((s, p) => s + (p.speed || 0), 0) / stay.pings.length;
 
-        let address;
-        try {
-          address = await geocoding.getFullAddress(stay.lat, stay.lon);
-        } catch (err) {
-          console.error(`Trip & Track geocoding failed for ${device.deviceName}:`, err);
-          address = null;
-        }
-
         rows.push({
           company: device.customerName,
           vehicle: device.deviceName,
@@ -220,7 +211,7 @@ async function collectGps(db, deviceById, ids, now) {
           leave_time: mytTimeStr(leaveUtc),
           duration: `${durationMin} min`,
           coordinates: `${stay.lat},${stay.lon}`,
-          address,
+          address: null, // resolved later, on-demand, at report-generation time — not during collection
           acc_status: stay.acc === 1 ? 'ON' : 'OFF',
           speed: avgSpeed.toFixed(1),
         });
