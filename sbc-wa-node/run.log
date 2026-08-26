@@ -1,2 +1,0 @@
-Motion Offline Alert failed: Error: MettaX request failed (/v2/openapi/device/list): code 63002 Rate limit exceeded
-    at mettaxPost (/mnt/c/Users/user/Downloads/SBC-WS/sbc-wa-node/lib/mettax-client.js

@@ -209,6 +209,7 @@ async function fetchMotionOfflineIncidents() {
   const devices = (await mettax.getDeviceList()).filter((d) => !isMotionOfflineExcluded(d));
   if (devices.length === 0) return [];
 
+  const deviceById = new Map(devices.map((d) => [d.id, d]));
   const shadowData = await mettax.getDeviceShadow(devices.map((d) => d.id));
   const seenThisRun = new Set();
   const newIncidents = [];
@@ -236,6 +237,7 @@ async function fetchMotionOfflineIncidents() {
         const { date, time } = mytDateParts(parseMettaxUtc(dd.deviceTime));
         newIncidents.push({
           deviceName: dd.deviceName,
+          customerName: deviceById.get(dd.deviceId)?.customerName || null,
           address,
           acc: dd.acc,
           speed: dd.speed,
@@ -255,10 +257,11 @@ async function fetchMotionOfflineIncidents() {
 }
 
 function initScheduler(getSock, db) {
-  const logAlert = (alertType, status, messageText = null, error = null) => {
+  const logAlert = (alertType, status, messageText = null, error = null, meta = {}) => {
+    const { tenant = null, device = null, tenantBreakdown = null } = meta;
     db.prepare(
-      'INSERT INTO alert_log (alert_type, status, message_text, error) VALUES (?, ?, ?, ?)'
-    ).run(alertType, status, messageText, error);
+      'INSERT INTO alert_log (alert_type, status, message_text, error, tenant, device, tenant_breakdown) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(alertType, status, messageText, error, tenant, device, tenantBreakdown ? JSON.stringify(tenantBreakdown) : null);
   };
 
   // 1. Daily Alert — 9:15am, 12:15pm, 3:15pm, 6:15pm, 9:15pm MYT
@@ -277,7 +280,11 @@ function initScheduler(getSock, db) {
         customers,
       });
       await sendWithTyping(getSock, config.whatsappGroups.dailyAlert, text);
-      logAlert('daily_alert', 'SENT', text);
+      const tenantBreakdown = customers.map((c) => ({
+        name: c.name,
+        count: c.devices.reduce((sum, d) => sum + d.alerts.reduce((a, x) => a + x.count, 0), 0),
+      }));
+      logAlert('daily_alert', 'SENT', text, null, { tenantBreakdown });
     } catch (err) {
       console.error('Daily Alert failed:', err);
       logAlert('daily_alert', 'FAILED', null, err.message);
@@ -305,7 +312,8 @@ function initScheduler(getSock, db) {
       const text = formatCommunicationLost({ date, time, customers });
       if (text) {
         await sendWithTyping(getSock, config.whatsappGroups.communicationLost, text);
-        logAlert('communication_lost', 'SENT', text);
+        const tenantBreakdown = customers.map((c) => ({ name: c.name, count: c.devices.length }));
+        logAlert('communication_lost', 'SENT', text, null, { tenantBreakdown });
       }
     } catch (err) {
       console.error('Communication Lost failed:', err);
@@ -327,7 +335,10 @@ function initScheduler(getSock, db) {
       const { date, time } = mytDateParts(now);
       const text = formatBerkatSatuHourly({ customerName: config.berkatSatuCustomerName, date, time, devices: offline });
       await sendWithTyping(getSock, config.whatsappGroups.berkatSatuHourly, text);
-      logAlert('berkat_satu_hourly', 'SENT', text);
+      logAlert('berkat_satu_hourly', 'SENT', text, null, {
+        tenant: config.berkatSatuCustomerName,
+        device: offline.map((d) => d.name).join(', '),
+      });
     } catch (err) {
       console.error('Berkat Satu Hourly failed:', err);
       logAlert('berkat_satu_hourly', 'FAILED', null, err.message);
@@ -343,9 +354,12 @@ function initScheduler(getSock, db) {
       const incidents = await fetchMotionOfflineIncidents();
       if (incidents.length === 0) return;
       const messages = formatMotionOfflineAlerts(incidents);
-      for (const msg of messages) {
-        await sendWithTyping(getSock, config.whatsappGroups.motionOfflineAlert, msg);
-        logAlert('motion_offline', 'SENT', msg);
+      for (let i = 0; i < incidents.length; i++) {
+        await sendWithTyping(getSock, config.whatsappGroups.motionOfflineAlert, messages[i]);
+        logAlert('motion_offline', 'SENT', messages[i], null, {
+          tenant: incidents[i].customerName,
+          device: incidents[i].deviceName,
+        });
       }
     } catch (err) {
       console.error('Motion Offline Alert failed:', err);

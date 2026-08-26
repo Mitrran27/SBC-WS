@@ -81,6 +81,20 @@ db.exec(`
   );
 `);
 
+// Add dashboard columns to alert_log if this DB predates them (SQLite has no
+// ALTER TABLE ADD COLUMN IF NOT EXISTS, so check pragma first).
+const alertLogColumns = db.prepare("PRAGMA table_info(alert_log)").all().map((c) => c.name);
+for (const [col, def] of [
+  ['tenant', 'TEXT'],
+  ['device', 'TEXT'],
+  ['tenant_breakdown', 'TEXT'],
+]) {
+  if (!alertLogColumns.includes(col)) {
+    db.exec(`ALTER TABLE alert_log ADD COLUMN ${col} ${def}`);
+    console.log(`Migrated alert_log: added column "${col}".`);
+  }
+}
+
 // Seed a few placeholder phrases so the ghost_messages table isn't empty.
 // The doc calls for 5,000+ — replace this with your real phrase list.
 const seedCount = db.prepare('SELECT COUNT(*) AS c FROM ghost_messages').get().c;

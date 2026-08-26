@@ -5,6 +5,7 @@ const qrcodeImage = require('qrcode');
 const pino = require('pino');
 const { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const { initScheduler } = require('./lib/scheduler');
+const { registerDashboardRoutes } = require('./lib/dashboard');
 const { parseReportRequest, generateReport } = require('./lib/report-generator');
 
 const logger = pino({ level: 'warn' });
@@ -132,4 +133,9 @@ async function processQueue() {
 }
 processQueue();
 
-app.listen(3000, () => console.log('Edge node API running on port 3000'));
+registerDashboardRoutes(app, db);
+
+app.listen(3000, () => {
+  console.log('Edge node API running on port 3000');
+  console.log('Dashboard API ready — run the SvelteKit UI in ui-dashboard/ (npm run dev) to view it.');
+});

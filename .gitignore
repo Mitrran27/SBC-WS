@@ -1,1 +1,5 @@
 node_modules/
+
+# Runtime-generated artifacts (logs, WhatsApp pairing QR)
+*.log
+sbc-wa-node/qr.png

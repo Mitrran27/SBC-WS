@@ -272,4 +272,4 @@ async function runCollection(db) {
   return results;
 }
 
-module.exports = { runCollection, STATE_PATH };
+module.exports = { runCollection };
