@@ -9,8 +9,9 @@ module.exports = {
   },
 
   google: {
-    // TODO: needed for Motion Offline Alert's address lookup (Geocoding API)
-    geocodingApiKey: '***REMOVED-GOOGLE-API-KEY***',
+    // TODO: needed for Motion Offline Alert's address lookup (Geocoding API).
+    // Key removed after being exposed publicly — add your own to re-enable.
+    geocodingApiKey: '',
   },
 
   // TODO: WhatsApp group JIDs. Find yours by messaging the group once with
